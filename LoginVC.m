@@ -86,7 +86,12 @@ static LoginVC *currentLoginVC = nil;
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleLoginSuccess) name:@"RALoginSuccess" object:nil];
     self.view.backgroundColor = [UIColor colorWithWhite:0.1 alpha:1.0];
 
-    self.webView = [[[UIWebView alloc] initWithFrame:self.view.bounds] autorelease];
+    CGRect webFrame = self.view.bounds;
+    CGFloat statusBarHeight = [UIApplication sharedApplication].statusBarFrame.size.height;
+    webFrame.origin.y += statusBarHeight;
+    webFrame.size.height -= statusBarHeight;
+
+    self.webView = [[[UIWebView alloc] initWithFrame:webFrame] autorelease];
     self.webView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.webView.delegate = self;
 

@@ -137,7 +137,9 @@
     if (![username isEqualToString:@"_REDDIT"]) { [self setUser:username ]; }
 
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-    NSDictionary *account = [self accountDict:username];
+    NSDictionary *account = nil;
+    @synchronized(tokens) { account = [[[tokens objectForKey:username] copy] autorelease]; }
+
     NSString *lastToken = [account objectForKey:@"token"];
     double expiry = [[account objectForKey:@"expiry"] doubleValue];
     

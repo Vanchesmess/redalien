@@ -36,44 +36,47 @@ static void setupRelease(void) {
     NSLog(@"[RedAlien] release01 -> release02");
 }
 
-%hook NSURLSessionConfiguration
+static id *injectRAProto(id cfg) {
+    if (!cfg) { return nil; }
 
-+ (NSURLSessionConfiguration *)defaultSessionConfiguration {
-    NSURLSessionConfiguration *cfg = %orig;
-    NSLog(@"[RedAlien][NSURLSession] defaultSessionConfiguration");
     Class raProto = NSClassFromString(@"RAProtocol");
+    if (!raProto) { return cfg; }
 
-    if (raProto) {
-        NSMutableArray *protocols = [[cfg protocolClasses] mutableCopy];
-        if (!protocols) { protocols = [[NSMutableArray alloc] init]; }
+    id origProtocols = [cfg protocolClasses];
+    NSLog(@"[RedAlien][NSURLSession] protocolClasses: %@ (%@)", origProtocols, origProtocols ? NSStringFromClass([origProtocols class]) : @"nil");
+    NSMutableArray *protocols = nil;
 
-        if (![protocols containsObject:raProto]) {
-            [protocols insertObject:raProto atIndex:0];
-            [cfg setProtocolClasses:protocols];
-            NSLog(@"[RedAlien][NSURLSession] injected RAProtocol into default");
-        }
+    if (!origProtocols) {
+        protocols = [[NSMutableArray alloc] init];
+    } else if ([origProtocols isKindOfClass:[NSArray class]]) {
+        protocols = [origProtocols mutableCopy];
+    } else {
+        NSLog(@"[RedAlien][NSURLSession] Unexpected protocolClasses type: %@", NSStringFromClass([origProtocols class]));
+        return cfg;
     }
 
+    if (![protocols containsObject:raProto]) {
+        [protocols insertObject:raProto atIndex:0];
+        [cfg setProtocolClasses: protocols];
+        NSLog(@"[RedAlien][NSURLSession] RAProtocol injected");
+    }
+
+    [protocols release];
     return cfg;
 }
 
-+ (NSURLSessionConfiguration *)ephemeralSessionConfiguration {
-    NSURLSessionConfiguration *cfg = %orig;
+%hook NSURLSessionConfiguration
+
++ (id)defaultSessionConfiguration {
+    NSLog(@"[RedAlien][NSURLSession] defaultSessionConfiguration");
+    id cfg = %orig;
+    return injectRAProto(cfg);
+}
+
++ (id)ephemeralSessionConfiguration {
     NSLog(@"[RedAlien][NSURLSession] ephemeralSessionConfiguration");
-    Class raProto = NSClassFromString(@"RAProtocol");
-
-    if (raProto) {
-        NSMutableArray *protocols = [[cfg protocolClasses] mutableCopy];
-        if (!protocols) { protocols = [[NSMutableArray alloc] init]; }
-
-        if (![protocols containsObject:raProto]) {
-            [protocols insertObject:raProto atIndex:0];
-            [cfg setProtocolClasses:protocols];
-            NSLog(@"[RedAlien][NSURLSession] injected RAProtocol into ephemeral");
-        }
-    }
-
-    return cfg;
+    id cfg = %orig;
+    return injectRAProto(cfg);
 }
 
 %end
