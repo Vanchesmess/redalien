@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build:
-    name: Build iOS 12 package
+    name: Build RedAlien
     runs-on: ubuntu-22.04
 
     env:
@@ -23,15 +23,15 @@ jobs:
       ARCHS: arm64
 
     steps:
-      # 1. Получаем исходники
+      # 1. Checkout project
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      # 2. Устанавливаем зависимости
-      - name: Install build dependencies
+      # 2. Install dependencies
+      - name: Install dependencies
         run: |
           set -eux
 
@@ -41,17 +41,17 @@ jobs:
             build-essential \
             fakeroot \
             dpkg-dev \
-            ldid \
             perl \
             curl \
             git \
             xz-utils \
             unzip \
             zip \
-            libio-compress-perl \
-            ca-certificates
+            libio-compress-lzma-perl \
+            ca-certificates \
+            file
 
-      # 3. Устанавливаем Theos
+      # 3. Install Theos
       - name: Install Theos
         run: |
           set -eux
@@ -60,16 +60,16 @@ jobs:
             https://github.com/theos/theos.git \
             "$THEOS"
 
-          test -d "$THEOS/makefiles"
+          mkdir -p "$THEOS/toolchain/linux/iphone"
+          mkdir -p "$THEOS/sdks"
 
-      # 4. Устанавливаем Linux iOS toolchain
+      # 4. Download Linux iOS toolchain
+      # ldid is included in this toolchain.
       - name: Install iOS toolchain
         run: |
           set -eux
 
           TOOLCHAIN_URL="https://github.com/sbingner/llvm-project/releases/latest/download/linux-ios-arm64e-clang-toolchain.tar.lzma"
-
-          mkdir -p "$THEOS/toolchain/linux/iphone"
 
           TMP_DIR="$(mktemp -d)"
 
@@ -80,50 +80,75 @@ jobs:
           tar --lzma -xf "$TMP_DIR/toolchain.tar.lzma" \
             -C "$TMP_DIR"
 
-          TOOLCHAIN_DIR="$TMP_DIR/ios-arm64e-clang-toolchain"
+          TOOLCHAIN_SOURCE="$TMP_DIR/ios-arm64e-clang-toolchain"
 
-          if [ ! -d "$TOOLCHAIN_DIR" ]; then
-            echo "Toolchain directory not found"
-            find "$TMP_DIR" -maxdepth 3 -type d
+          if [ ! -d "$TOOLCHAIN_SOURCE" ]; then
+            echo "ERROR: Toolchain archive has unexpected structure"
+            find "$TMP_DIR" -maxdepth 3 -print
             exit 1
           fi
 
-          cp -a "$TOOLCHAIN_DIR/." \
+          cp -a "$TOOLCHAIN_SOURCE/." \
             "$THEOS/toolchain/linux/iphone/"
 
-          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+          if [ ! -x "$THEOS/toolchain/linux/iphone/bin/clang" ]; then
+            echo "ERROR: clang not found"
+            find "$THEOS/toolchain/linux/iphone" -maxdepth 4 -print
+            exit 1
+          fi
+
+          # Find bundled ldid
+          LDID_PATH="$(find "$THEOS/toolchain/linux/iphone" \
+            -type f -name ldid -print -quit)"
+
+          if [ -z "$LDID_PATH" ]; then
+            echo "ERROR: ldid not found in toolchain"
+            find "$THEOS/toolchain/linux/iphone" -maxdepth 5 -print
+            exit 1
+          fi
+
+          chmod +x "$LDID_PATH"
+
+          sudo ln -sf "$LDID_PATH" /usr/local/bin/ldid
+
+          echo "Toolchain installed:"
+          "$THEOS/toolchain/linux/iphone/bin/clang" --version
+
+          echo "ldid location:"
+          command -v ldid
+
+          file "$LDID_PATH"
 
           rm -rf "$TMP_DIR"
 
-      # 5. Устанавливаем SDK iOS 12.4
+      # 5. Download iOS 12.4 SDK
       - name: Install iOS SDK
         run: |
           set -eux
 
-          SDK_REPO="$(mktemp -d)"
+          SDK_URL="https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS12.4.sdk.tar.xz"
 
-          git clone --depth 1 \
-            https://github.com/theos/sdks.git \
-            "$SDK_REPO"
+          curl -fL --retry 3 \
+            "$SDK_URL" \
+            -o /tmp/iPhoneOS12.4.sdk.tar.xz
 
-          SDK_SOURCE="$SDK_REPO/iPhoneOS${SDK_VERSION}.sdk"
-          SDK_DEST="$THEOS/sdks/iPhoneOS${SDK_VERSION}.sdk"
+          tar -xJf /tmp/iPhoneOS12.4.sdk.tar.xz \
+            -C "$THEOS/sdks"
 
-          if [ ! -d "$SDK_SOURCE" ]; then
-            echo "iOS SDK $SDK_VERSION not found in repository"
-            find "$SDK_REPO" -maxdepth 1 -name "*.sdk"
+          SDK_PATH="$THEOS/sdks/iPhoneOS${SDK_VERSION}.sdk"
+
+          if [ ! -d "$SDK_PATH" ]; then
+            echo "ERROR: SDK not found at $SDK_PATH"
+            find "$THEOS/sdks" -maxdepth 2 -type d
             exit 1
           fi
 
-          mkdir -p "$THEOS/sdks"
+          echo "SDK installed:"
+          ls -la "$SDK_PATH"
 
-          cp -a "$SDK_SOURCE" "$SDK_DEST"
+          rm -f /tmp/iPhoneOS12.4.sdk.tar.xz
 
-          test -d "$SDK_DEST/System/Library"
-
-          rm -rf "$SDK_REPO"
-
-      # 6. Проверяем конфигурацию
+      # 6. Verify environment
       - name: Verify build environment
         run: |
           set -eux
@@ -133,16 +158,21 @@ jobs:
           echo "MIN_IOS_VERSION=$MIN_IOS_VERSION"
           echo "ARCHS=$ARCHS"
 
-          "$THEOS/toolchain/linux/iphone/bin/clang" --version
-
           test -f Makefile
+
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
 
           test -d "$THEOS/sdks/iPhoneOS${SDK_VERSION}.sdk"
 
-          dpkg-deb --version
+          command -v ldid
+          command -v dpkg-deb
+          command -v fakeroot
+
           ldid -h || true
 
-      # 7. Собираем пакет
+          echo "Environment is ready"
+
+      # 7. Build package
       - name: Build DEB package
         run: |
           set -eux
@@ -155,28 +185,33 @@ jobs:
             ARCHS="$ARCHS" \
             TARGET="iphone:clang:${SDK_VERSION}:${MIN_IOS_VERSION}"
 
-      # 8. Проверяем результат
+      # 8. Verify package
       - name: Verify DEB package
         run: |
           set -eux
 
           mkdir -p build-output
 
-          find packages -maxdepth 1 -type f -name "*.deb" \
+          find packages \
+            -maxdepth 1 \
+            -type f \
+            -name "*.deb" \
             -exec cp {} build-output/ \;
 
           if ! ls build-output/*.deb >/dev/null 2>&1; then
-            echo "No DEB package was generated"
+            echo "ERROR: No DEB package generated"
             exit 1
           fi
 
           for package in build-output/*.deb; do
+            echo "Package: $package"
+
             dpkg-deb --info "$package"
             dpkg-deb --contents "$package"
           done
 
-      # 9. Загружаем готовый пакет
-      - name: Upload DEB artifact
+      # 9. Upload artifact
+      - name: Upload DEB
         uses: actions/upload-artifact@v4
         with:
           name: redalien-ios12
