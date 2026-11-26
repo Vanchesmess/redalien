@@ -60,21 +60,34 @@ jobs:
 
       # 3. Install Theos
       - name: Install Theos
+        shell: bash
         run: |
-          set -eux
+          set -euo pipefail
 
-          THEOS_REPO="https://github.com"
+          THEOS_REPO="https://github.com/theos/theos.git"
 
-          git clone --recursive "$THEOS_REPO" "$THEOS"
+          echo "Repository: $THEOS_REPO"
 
-          test -d "$THEOS/makefiles"
+          # Validate URL before cloning
+          if [[ "$THEOS_REPO" != "https://github.com/theos/theos.git" ]]; then
+            echo "ERROR: Invalid Theos repository URL"
+            exit 1
+          fi
+
+          # Clean previous installation
+          rm -rf "$THEOS"
+
+          # Clone official repository
+          git clone --depth 1 --recursive \
+            "$THEOS_REPO" "$THEOS"
+
+          # Verify installation
           test -f "$THEOS/makefiles/common.mk"
+          test -d "$THEOS/makefiles"
 
-          mkdir -p "$THEOS/toolchain/linux/iphone"
-          mkdir -p "$THEOS/sdks"
-
-          echo "Theos successfully installed"
-          git -C "$THEOS" rev-parse --short HEAD
+          echo "Theos installation successful"
+          git -C "$THEOS" remote -v
+          git -C "$THEOS" rev-parse HEAD
 
       # 4. Download Linux iOS toolchain
       - name: Install iOS toolchain
@@ -171,27 +184,26 @@ jobs:
         run: |
           set -eux
 
-          SDK_URL="https://github.com"
+          SDKS_REPO="https://github.com/theos/sdks.git"
 
-          curl -fL --retry 3 \
-            "$SDK_URL" \
-            -o /tmp/iPhoneOS12.4.sdk.tar.xz
+          TMP_DIR="$(mktemp -d)"
+          trap 'rm -rf "$TMP_DIR"' EXIT
 
-          tar -xJf /tmp/iPhoneOS12.4.sdk.tar.xz \
-            -C "$THEOS/sdks"
+          git clone --depth 1 "$SDKS_REPO" "$TMP_DIR/sdks"
 
           SDK_PATH="$THEOS/sdks/iPhoneOS${SDK_VERSION}.sdk"
 
+          mkdir -p "$THEOS/sdks"
+          mv "$TMP_DIR/sdks/iPhoneOS${SDK_VERSION}.sdk" "$SDK_PATH"
+
           if [ ! -d "$SDK_PATH" ]; then
             echo "ERROR: SDK not found at $SDK_PATH"
-            find "$THEOS/sdks" -maxdepth 2 -type d
+            ls "$TMP_DIR/sdks"
             exit 1
           fi
 
           echo "SDK installed:"
           ls -la "$SDK_PATH"
-
-          rm -f /tmp/iPhoneOS12.4.sdk.tar.xz
 
       # 6. Verify environment
       - name: Verify build environment
