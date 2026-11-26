@@ -8,8 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: theos/theos:latest
 
     steps:
       - name: Checkout source
@@ -17,8 +15,17 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install Theos via official script
+        run: |
+          # Запускаем официальный инсталлятор Theos в неинтерактивном режиме
+          yes "" | bash -c "$(curl -fsSL https://githubusercontent.com)"
+          
+          # Привязываем установленный Theos туда, где его ищет Makefile
+          ln -s ~/theos "$GITHUB_WORKSPACE/theos"
+
       - name: Build DEB package
         run: |
+          export THEOS="$GITHUB_WORKSPACE/theos"
           make package FINALPACKAGE=1
 
       - name: Upload DEB
