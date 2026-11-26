@@ -64,7 +64,7 @@ jobs:
           set -eux
 
           git clone --recursive \
-            https://github.com/theos/theos.git \
+            https://github.com \
             "$THEOS"
 
           mkdir -p "$THEOS/toolchain/linux/iphone"
@@ -76,7 +76,7 @@ jobs:
         run: |
           set -eux
 
-          TOOLCHAIN_URL="https://github.com/sbingner/llvm-project/releases/latest/download/linux-ios-arm64e-clang-toolchain.tar.lzma"
+          TOOLCHAIN_URL="https://github.com"
 
           TMP_DIR="$(mktemp -d)"
 
@@ -133,7 +133,7 @@ jobs:
         run: |
           set -eux
 
-          SDK_URL="https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS12.4.sdk.tar.xz"
+          SDK_URL="https://github.com"
 
           curl -fL --retry 3 \
             "$SDK_URL" \
@@ -186,13 +186,27 @@ jobs:
 
           make clean || true
 
+          set -o pipefail
+
           make package \
             FINALPACKAGE=1 \
             THEOS="$THEOS" \
             ARCHS="$ARCHS" \
-            TARGET="iphone:clang:${SDK_VERSION}:${MIN_IOS_VERSION}"
+            TARGET="iphone:clang:${SDK_VERSION}:${MIN_IOS_VERSION}" \
+            V=1 \
+            2>&1 | tee build.log
 
-      # 8. Verify package
+      # 8. Upload build log
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redalien-build-log
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # 9. Verify package
       - name: Verify DEB package
         run: |
           set -eux
@@ -217,7 +231,7 @@ jobs:
             dpkg-deb --contents "$package"
           done
 
-      # 9. Upload artifact
+      # 10. Upload artifact
       - name: Upload DEB
         uses: actions/upload-artifact@v4
         with:
