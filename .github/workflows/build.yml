@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-15
 
     steps:
       - name: Checkout source
@@ -17,13 +17,8 @@ jobs:
 
       - name: Setup Theos & Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y fakeroot xz-utils zip unzip curl git clang llvm perl libio-compress-perl
-          
+          brew install ldid xz
           GH="https://github.com"
-          sudo curl -fsSL "$GH/ProcursusTeam/ldid/releases/latest/download/ldid_linux_x86_64" -o /usr/local/bin/ldid
-          sudo chmod +x /usr/local/bin/ldid
-
           git clone --recursive "$GH/theos/theos.git" "$GITHUB_WORKSPACE/theos"
           rm -rf "$GITHUB_WORKSPACE/theos/sdks"
           git clone --depth 1 "$GH/theos/sdks.git" "$GITHUB_WORKSPACE/theos/sdks"
