@@ -15,11 +15,12 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Theos
-        uses: Randomblock1/theos-action@v1
-        with:
-          theos-dir: 'theos'
-          theos-sdks: 'https://github.com'
+      - name: Install dependencies & Theos
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot ldid xz-utils zip unzip curl git clang llvm
+          git clone --recursive https://github.com $GITHUB_WORKSPACE/theos
+          git clone --depth 1 https://github.com $GITHUB_WORKSPACE/theos/sdks
 
       - name: Build DEB package
         run: |
