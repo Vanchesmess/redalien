@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout source
@@ -15,11 +15,24 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Theos & Dependencies
+      - name: Setup Theos & Toolchain (Fast Linux)
         run: |
-          brew install ldid xz
+          sudo apt-get update
+          sudo apt-get install -y fakeroot xz-utils zip unzip curl git perl libio-compress-perl
+          
           GH="https://github.com"
+          sudo curl -fsSL "$GH/ProcursusTeam/ldid/releases/latest/download/ldid_linux_x86_64" -o /usr/local/bin/ldid
+          sudo chmod +x /usr/local/bin/ldid
+
+          # Клонируем Theos
           git clone --recursive "$GH/theos/theos.git" "$GITHUB_WORKSPACE/theos"
+
+          # Скачиваем готовый iOS toolchain для Linux
+          mkdir -p "$GITHUB_WORKSPACE/theos/toolchain/linux/iphone"
+          curl -fsSL "$GH/theos/toolchain/releases/download/v0.1.3/iOS-toolchain-linux-x86_64.tar.xz" -o /tmp/toolchain.tar.xz
+          tar -xJf /tmp/toolchain.tar.xz -C "$GITHUB_WORKSPACE/theos/toolchain/linux/iphone" --strip-components=1
+
+          # Скачиваем SDK
           rm -rf "$GITHUB_WORKSPACE/theos/sdks"
           git clone --depth 1 "$GH/theos/sdks.git" "$GITHUB_WORKSPACE/theos/sdks"
 
