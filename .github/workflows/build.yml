@@ -18,7 +18,7 @@ jobs:
       - name: Setup Theos & Toolchain (Fast Linux)
         run: |
           sudo apt-get update
-          sudo apt-get install -y fakeroot xz-utils zip unzip curl git perl libio-compress-perl
+          sudo apt-get install -y fakeroot xz-utils zip unzip curl git perl libio-compress-perl jq
           
           GH="https://github.com"
           sudo curl -fsSL "$GH/ProcursusTeam/ldid/releases/latest/download/ldid_linux_x86_64" -o /usr/local/bin/ldid
@@ -27,10 +27,12 @@ jobs:
           # Клонируем Theos
           git clone --recursive "$GH/theos/theos.git" "$GITHUB_WORKSPACE/theos"
 
-          # Скачиваем готовый iOS toolchain для Linux
+          # Автоматически берём ссылку на актуальный архив тулчейна через API
           mkdir -p "$GITHUB_WORKSPACE/theos/toolchain/linux/iphone"
-          curl -fsSL "$GH/theos/toolchain/releases/download/v0.1.3/iOS-toolchain-linux-x86_64.tar.xz" -o /tmp/toolchain.tar.xz
-          tar -xJf /tmp/toolchain.tar.xz -C "$GITHUB_WORKSPACE/theos/toolchain/linux/iphone" --strip-components=1
+          TOOLCHAIN_URL=$(curl -fsSL "https://github.com" | jq -r '.assets[] | select(.name | test("linux.*x86_64.*\\.tar\\.(xz|gz)")) | .browser_download_url' | head -n 1)
+          echo "Downloading toolchain: $TOOLCHAIN_URL"
+          curl -fsSL "$TOOLCHAIN_URL" -o /tmp/toolchain.tar
+          tar -xf /tmp/toolchain.tar -C "$GITHUB_WORKSPACE/theos/toolchain/linux/iphone" --strip-components=1
 
           # Скачиваем SDK
           rm -rf "$GITHUB_WORKSPACE/theos/sdks"
