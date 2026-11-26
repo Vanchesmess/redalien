@@ -15,28 +15,33 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Theos & Toolchain (Fast Linux)
+      - name: Setup Theos & Toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y fakeroot xz-utils zip unzip curl git perl libio-compress-perl jq
-          
+          sudo apt-get install -y fakeroot xz-utils zip unzip curl git perl libio-compress-perl
+
           GH="https://github.com"
           sudo curl -fsSL "$GH/ProcursusTeam/ldid/releases/latest/download/ldid_linux_x86_64" -o /usr/local/bin/ldid
           sudo chmod +x /usr/local/bin/ldid
 
           # Клонируем Theos
-          git clone --recursive "$GH/theos/theos.git" "$GITHUB_WORKSPACE/theos"
+          export THEOS="$GITHUB_WORKSPACE/theos"
+          git clone --recursive "$GH/theos/theos.git" "$THEOS"
 
-          # Автоматически берём ссылку на актуальный архив тулчейна через API
-          mkdir -p "$GITHUB_WORKSPACE/theos/toolchain/linux/iphone"
-          TOOLCHAIN_URL=$(curl -fsSL "https://github.com" | jq -r '.assets[] | select(.name | test("linux.*x86_64.*\\.tar\\.(xz|gz)")) | .browser_download_url' | head -n 1)
-          echo "Downloading toolchain: $TOOLCHAIN_URL"
-          curl -fsSL "$TOOLCHAIN_URL" -o /tmp/toolchain.tar
-          tar -xf /tmp/toolchain.tar -C "$GITHUB_WORKSPACE/theos/toolchain/linux/iphone" --strip-components=1
+          # Используем встроенный скрипт самого Theos для скачивания тулчейна
+          "$THEOS/bin/update-theos" || true
+          
+          # Скачиваем актуальный тулчейн напрямую через релизы (без API и jq)
+          mkdir -p "$THEOS/toolchain/linux/iphone"
+          LATEST_TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$GH/theos/toolchain/releases/latest" | awk -F'/' '{print $NF}')
+          echo "Latest toolchain tag: $LATEST_TAG"
+          curl -fsSL "$GH/theos/toolchain/releases/download/$LATEST_TAG/iOS-toolchain-linux-x86_64.tar.xz" -o /tmp/toolchain.tar.xz || \
+          curl -fsSL "$GH/theos/toolchain/releases/download/$LATEST_TAG/linux-x86_64-toolchain.tar.xz" -o /tmp/toolchain.tar.xz
+          tar -xJf /tmp/toolchain.tar.xz -C "$THEOS/toolchain/linux/iphone" --strip-components=1
 
           # Скачиваем SDK
-          rm -rf "$GITHUB_WORKSPACE/theos/sdks"
-          git clone --depth 1 "$GH/theos/sdks.git" "$GITHUB_WORKSPACE/theos/sdks"
+          rm -rf "$THEOS/sdks"
+          git clone --depth 1 "$GH/theos/sdks.git" "$THEOS/sdks"
 
       - name: Build DEB package
         run: |
