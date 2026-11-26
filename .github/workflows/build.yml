@@ -213,6 +213,23 @@ jobs:
 
           echo "Environment is ready"
 
+
+      - name: Diagnose ARM architecture flags
+        run: |
+          set -eux
+
+          echo "Searching project configuration..."
+
+          grep -RInE --exclude-dir=.git \
+            --exclude-dir=.theos \
+            --exclude-dir=theos \
+            -- '-march=armv6|-mcpu=arm1176' . || true
+
+          echo "Checking environment flags..."
+
+          env | sort | grep -E \
+            '^(CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|ARCHS|TARGET)=' || true
+
       # 7. Build package
       - name: Build DEB package
         run: |
