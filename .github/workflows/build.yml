@@ -53,6 +53,7 @@ jobs:
             zip \
             libio-compress-lzma-perl \
             libtinfo5 \
+            libzstd-dev \
             ca-certificates \
             file
 
@@ -91,91 +92,74 @@ jobs:
 
       # 4. Download Linux iOS toolchain
       - name: Install iOS toolchain
+        shell: bash
         run: |
-          set -eux
+          set -euo pipefail
 
-          sudo apt-get update
-          sudo apt-get install -y jq curl xz-utils zstd
+          TOOLCHAIN_URL="https://github.com/sbingner/llvm-project/releases/download/v10.0.0-2/linux-ios-arm64e-clang-toolchain.tar.lzma"
 
           TMP_DIR="$(mktemp -d)"
           trap 'rm -rf "$TMP_DIR"' EXIT
 
-          # Get actual release asset URL from GitHub API
-          API_URL="https://api.github.com/repos/sbingner/llvm-project/releases/tags/v10.0.0-2"
-
-          curl -fsSL \
-            -H "Accept: application/vnd.github+json" \
-            "$API_URL" \
-            -o "$TMP_DIR/release.json"
-
-          echo "Available release assets:"
-          jq -r '.assets[] | "\(.name) \(.browser_download_url)"' \
-            "$TMP_DIR/release.json"
-
-          # Select the Linux toolchain archive automatically
-          ASSET_URL="$(jq -r '
-            .assets[]
-            | select(
-                (.name | ascii_downcase | contains("linux"))
-                and
-                (.name | test("\\.(tar\\.xz|tar\\.lzma|tar\\.zst|tar\\.gz)$"))
-              )
-            | .browser_download_url
-          ' "$TMP_DIR/release.json" | head -n 1)"
-
-          if [ -z "$ASSET_URL" ]; then
-            echo "ERROR: Linux toolchain archive not found"
-            exit 1
-          fi
-
-          echo "Downloading: $ASSET_URL"
+          echo "Downloading official Linux iOS toolchain..."
 
           curl -fL --retry 3 \
-            "$ASSET_URL" \
-            -o "$TMP_DIR/toolchain.archive"
+            "$TOOLCHAIN_URL" \
+            -o "$TMP_DIR/toolchain.tar.lzma"
 
-          # Verify archive before extraction
-          file "$TMP_DIR/toolchain.archive"
+          # Verify LZMA archive
+          file "$TMP_DIR/toolchain.tar.lzma"
 
-          if ! tar -tf "$TMP_DIR/toolchain.archive" \
-              > "$TMP_DIR/archive-list.txt"; then
-            echo "ERROR: Downloaded file is not a valid tar archive"
-            head -c 500 "$TMP_DIR/toolchain.archive"
+          xz --format=lzma -t "$TMP_DIR/toolchain.tar.lzma"
+
+          # Extract LZMA-compressed TAR
+          mkdir -p "$TMP_DIR/extracted"
+
+          tar --lzma -xvf "$TMP_DIR/toolchain.tar.lzma" \
+            -C "$TMP_DIR/extracted"
+
+          SOURCE="$TMP_DIR/extracted/ios-arm64e-clang-toolchain"
+
+          if [ ! -d "$SOURCE" ]; then
+            echo "ERROR: Expected toolchain directory not found"
+            find "$TMP_DIR/extracted" -maxdepth 3 -print
             exit 1
           fi
 
+          # Install into Theos
           mkdir -p "$THEOS/toolchain/linux/iphone"
 
-          tar -xf "$TMP_DIR/toolchain.archive" \
-            -C "$THEOS/toolchain/linux/iphone" \
-            --strip-components=1
+          cp -a "$SOURCE/." \
+            "$THEOS/toolchain/linux/iphone/"
 
-          # Locate compiler
-          CLANG_PATH="$(find "$THEOS/toolchain/linux/iphone" \
-            -type f -name clang -perm -111 -print -quit)"
+          # Verify compiler
+          CLANG="$THEOS/toolchain/linux/iphone/bin/clang"
 
-          if [ -z "$CLANG_PATH" ]; then
-            echo "ERROR: clang not found"
-            find "$THEOS/toolchain/linux/iphone" -maxdepth 4
+          if [ ! -x "$CLANG" ]; then
+            echo "ERROR: clang executable missing"
             exit 1
           fi
 
-          # Locate ldid
-          LDID_PATH="$(find "$THEOS/toolchain/linux/iphone" \
-            -type f -name ldid -perm -111 -print -quit)"
+          # Find ldid
+          LDID="$(find "$THEOS/toolchain/linux/iphone" \
+            -type f -name ldid -print -quit)"
 
-          if [ -z "$LDID_PATH" ]; then
-            echo "ERROR: ldid not found"
+          if [ -z "$LDID" ]; then
+            echo "ERROR: ldid missing from toolchain"
             exit 1
           fi
 
-          sudo ln -sf "$LDID_PATH" /usr/local/bin/ldid
+          chmod +x "$LDID"
+          sudo ln -sf "$LDID" /usr/local/bin/ldid
 
-          echo "Compiler:"
-          "$CLANG_PATH" --version
+          echo "Checking compiler dependencies..."
+          ldd "$CLANG" || true
 
-          echo "ldid:"
-          ldid -h || true
+          echo "Checking compiler..."
+          "$CLANG" --version
+
+          echo "Checking ldid..."
+          command -v ldid
 
           echo "Toolchain installed successfully"
 
