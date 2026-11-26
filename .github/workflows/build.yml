@@ -63,12 +63,18 @@ jobs:
         run: |
           set -eux
 
-          git clone --recursive \
-            https://github.com \
-            "$THEOS"
+          THEOS_REPO="https://github.com/theos/theos.git"
+
+          git clone --recursive "$THEOS_REPO" "$THEOS"
+
+          test -d "$THEOS/makefiles"
+          test -f "$THEOS/makefiles/common.mk"
 
           mkdir -p "$THEOS/toolchain/linux/iphone"
           mkdir -p "$THEOS/sdks"
+
+          echo "Theos successfully installed"
+          git -C "$THEOS" rev-parse --short HEAD
 
       # 4. Download Linux iOS toolchain
       # ldid is included in this toolchain.
