@@ -15,12 +15,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install dependencies & Theos
+      - name: Install Theos & SDKs
         run: |
-          sudo apt-get update
-          sudo apt-get install -y fakeroot ldid xz-utils zip unzip curl git clang llvm
-          git clone --recursive https://github.com $GITHUB_WORKSPACE/theos
-          git clone --depth 1 https://github.com $GITHUB_WORKSPACE/theos/sdks
+          export THEOS=$GITHUB_WORKSPACE/theos
+          bash -c "$(curl -fsSL https://githubusercontent.com)"
 
       - name: Build DEB package
         run: |
