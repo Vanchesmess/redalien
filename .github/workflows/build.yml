@@ -1,0 +1,33 @@
+name: Build RedAlien for iOS 12
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Theos
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-dir: 'theos'
+          theos-sdks: 'https://github.com'
+
+      - name: Build DEB package
+        run: |
+          export THEOS=$GITHUB_WORKSPACE/theos
+          make package FINALPACKAGE=1
+
+      - name: Upload DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: redalien-ios12
+          path: packages/*.deb
