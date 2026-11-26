@@ -15,14 +15,22 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Theos & SDKs
+      - name: Setup Theos & Dependencies
         run: |
-          export THEOS=$GITHUB_WORKSPACE/theos
-          bash -c "$(curl -fsSL https://githubusercontent.com)"
+          sudo apt-get update
+          sudo apt-get install -y fakeroot xz-utils zip unzip curl git clang llvm perl libio-compress-perl
+          
+          # Ставим свежий ldid напрямую с GitHub
+          sudo curl -fsSL https://github.com -o /usr/local/bin/ldid
+          sudo chmod +x /usr/local/bin/ldid
+
+          # Клонируем сам Theos и SDK ровно в $GITHUB_WORKSPACE/theos
+          git clone --recursive https://github.com "$GITHUB_WORKSPACE/theos"
+          git clone --depth 1 https://github.com "$GITHUB_WORKSPACE/theos/sdks"
 
       - name: Build DEB package
         run: |
-          export THEOS=$GITHUB_WORKSPACE/theos
+          export THEOS="$GITHUB_WORKSPACE/theos"
           make package FINALPACKAGE=1
 
       - name: Upload DEB
