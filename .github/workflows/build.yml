@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/theos/theos:latest
 
     steps:
       - name: Checkout source
@@ -15,37 +17,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Theos & Toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y fakeroot xz-utils zip unzip curl git perl libio-compress-perl
-
-          GH="https://github.com"
-          sudo curl -fsSL "$GH/ProcursusTeam/ldid/releases/latest/download/ldid_linux_x86_64" -o /usr/local/bin/ldid
-          sudo chmod +x /usr/local/bin/ldid
-
-          # Клонируем Theos
-          export THEOS="$GITHUB_WORKSPACE/theos"
-          git clone --recursive "$GH/theos/theos.git" "$THEOS"
-
-          # Используем встроенный скрипт самого Theos для скачивания тулчейна
-          "$THEOS/bin/update-theos" || true
-          
-          # Скачиваем актуальный тулчейн напрямую через релизы (без API и jq)
-          mkdir -p "$THEOS/toolchain/linux/iphone"
-          LATEST_TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$GH/theos/toolchain/releases/latest" | awk -F'/' '{print $NF}')
-          echo "Latest toolchain tag: $LATEST_TAG"
-          curl -fsSL "$GH/theos/toolchain/releases/download/$LATEST_TAG/iOS-toolchain-linux-x86_64.tar.xz" -o /tmp/toolchain.tar.xz || \
-          curl -fsSL "$GH/theos/toolchain/releases/download/$LATEST_TAG/linux-x86_64-toolchain.tar.xz" -o /tmp/toolchain.tar.xz
-          tar -xJf /tmp/toolchain.tar.xz -C "$THEOS/toolchain/linux/iphone" --strip-components=1
-
-          # Скачиваем SDK
-          rm -rf "$THEOS/sdks"
-          git clone --depth 1 "$GH/theos/sdks.git" "$THEOS/sdks"
-
       - name: Build DEB package
         run: |
-          export THEOS="$GITHUB_WORKSPACE/theos"
           make package FINALPACKAGE=1
 
       - name: Upload DEB
