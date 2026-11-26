@@ -50,6 +50,33 @@ jobs:
             libio-compress-lzma-perl \
             ca-certificates \
             file
+                  - name: Install dependencies
+        run: |
+          set -eux
+
+          sudo apt-get update
+
+          sudo apt-get install -y software-properties-common
+
+          sudo add-apt-repository -y universe
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            build-essential \
+            fakeroot \
+            dpkg-dev \
+            perl \
+            curl \
+            git \
+            xz-utils \
+            unzip \
+            zip \
+            libio-compress-lzma-perl \
+            libtinfo5 \
+            ca-certificates \
+            file
+
+          ldconfig -p | grep libtinfo.so.5
 
       # 3. Install Theos
       - name: Install Theos
