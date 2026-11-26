@@ -25,6 +25,7 @@ jobs:
           sudo chmod +x /usr/local/bin/ldid
 
           git clone --recursive "$GH/theos/theos.git" "$GITHUB_WORKSPACE/theos"
+          rm -rf "$GITHUB_WORKSPACE/theos/sdks"
           git clone --depth 1 "$GH/theos/sdks.git" "$GITHUB_WORKSPACE/theos/sdks"
 
       - name: Build DEB package
