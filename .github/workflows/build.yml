@@ -15,18 +15,35 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Theos via official script
+      - name: Install Theos, Toolchain & SDKs
         run: |
-          # Запускаем официальный инсталлятор Theos в неинтерактивном режиме
-          yes "" | bash -c "$(curl -fsSL https://githubusercontent.com)"
-          
-          # Привязываем установленный Theos туда, где его ищет Makefile
-          ln -s ~/theos "$GITHUB_WORKSPACE/theos"
+          sudo apt-get update
+          sudo apt-get install -y fakeroot xz-utils zip unzip curl git perl libio-compress-perl
+
+          # 1. Ставим ldid
+          sudo curl -fsSL https://github.com -o /usr/local/bin/ldid
+          sudo chmod +x /usr/local/bin/ldid
+
+          # 2. Клонируем сам Theos в /opt/theos
+          sudo mkdir -p /opt/theos
+          sudo chown -R $USER:$USER /opt/theos
+          git clone --recursive https://github.com /opt/theos
+
+          # 3. Скачиваем актуальный iOS toolchain для Linux напрямую из CRKatri/llvm-project
+          mkdir -p /opt/theos/toolchain/linux/iphone
+          curl -fsSL https://github.com -o /tmp/toolchain.tar.xz
+          tar -xJf /tmp/toolchain.tar.xz -C /opt/theos/toolchain/linux/iphone --strip-components=1
+
+          # 4. Скачиваем iOS SDKs
+          rm -rf /opt/theos/sdks
+          git clone --depth 1 https://github.com /opt/theos/sdks
+
+          # 5. Делаем симлинк в папку проекта на случай, если Makefile игнорирует переменную
+          ln -s /opt/theos "$GITHUB_WORKSPACE/theos"
 
       - name: Build DEB package
         run: |
-          export THEOS="$GITHUB_WORKSPACE/theos"
-          make package FINALPACKAGE=1
+          make package FINALPACKAGE=1 THEOS=/opt/theos
 
       - name: Upload DEB
         uses: actions/upload-artifact@v4
