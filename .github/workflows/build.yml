@@ -1,52 +1,185 @@
+
 name: Build RedAlien for iOS 12
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build iOS 12 package
+    runs-on: ubuntu-22.04
+
+    env:
+      THEOS: ${{ github.workspace }}/theos
+      SDK_VERSION: "12.4"
+      MIN_IOS_VERSION: "12.0"
+      ARCHS: arm64
 
     steps:
+      # 1. Получаем исходники
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
-      - name: Install Theos, Toolchain & SDKs
+      # 2. Устанавливаем зависимости
+      - name: Install build dependencies
         run: |
+          set -eux
+
           sudo apt-get update
-          sudo apt-get install -y fakeroot xz-utils zip unzip curl git perl libio-compress-perl
 
-          # 1. Ставим ldid
-          sudo curl -fsSL https://github.com -o /usr/local/bin/ldid
-          sudo chmod +x /usr/local/bin/ldid
+          sudo apt-get install -y \
+            build-essential \
+            fakeroot \
+            dpkg-dev \
+            ldid \
+            perl \
+            curl \
+            git \
+            xz-utils \
+            unzip \
+            zip \
+            libio-compress-perl \
+            ca-certificates
 
-          # 2. Клонируем сам Theos в /opt/theos
-          sudo mkdir -p /opt/theos
-          sudo chown -R $USER:$USER /opt/theos
-          git clone --recursive https://github.com /opt/theos
+      # 3. Устанавливаем Theos
+      - name: Install Theos
+        run: |
+          set -eux
 
-          # 3. Скачиваем актуальный iOS toolchain для Linux напрямую из CRKatri/llvm-project
-          mkdir -p /opt/theos/toolchain/linux/iphone
-          curl -fsSL https://github.com -o /tmp/toolchain.tar.xz
-          tar -xJf /tmp/toolchain.tar.xz -C /opt/theos/toolchain/linux/iphone --strip-components=1
+          git clone --recursive \
+            https://github.com/theos/theos.git \
+            "$THEOS"
 
-          # 4. Скачиваем iOS SDKs
-          rm -rf /opt/theos/sdks
-          git clone --depth 1 https://github.com /opt/theos/sdks
+          test -d "$THEOS/makefiles"
 
-          # 5. Делаем симлинк в папку проекта на случай, если Makefile игнорирует переменную
-          ln -s /opt/theos "$GITHUB_WORKSPACE/theos"
+      # 4. Устанавливаем Linux iOS toolchain
+      - name: Install iOS toolchain
+        run: |
+          set -eux
 
+          TOOLCHAIN_URL="https://github.com/sbingner/llvm-project/releases/latest/download/linux-ios-arm64e-clang-toolchain.tar.lzma"
+
+          mkdir -p "$THEOS/toolchain/linux/iphone"
+
+          TMP_DIR="$(mktemp -d)"
+
+          curl -fL --retry 3 \
+            "$TOOLCHAIN_URL" \
+            -o "$TMP_DIR/toolchain.tar.lzma"
+
+          tar --lzma -xf "$TMP_DIR/toolchain.tar.lzma" \
+            -C "$TMP_DIR"
+
+          TOOLCHAIN_DIR="$TMP_DIR/ios-arm64e-clang-toolchain"
+
+          if [ ! -d "$TOOLCHAIN_DIR" ]; then
+            echo "Toolchain directory not found"
+            find "$TMP_DIR" -maxdepth 3 -type d
+            exit 1
+          fi
+
+          cp -a "$TOOLCHAIN_DIR/." \
+            "$THEOS/toolchain/linux/iphone/"
+
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+
+          rm -rf "$TMP_DIR"
+
+      # 5. Устанавливаем SDK iOS 12.4
+      - name: Install iOS SDK
+        run: |
+          set -eux
+
+          SDK_REPO="$(mktemp -d)"
+
+          git clone --depth 1 \
+            https://github.com/theos/sdks.git \
+            "$SDK_REPO"
+
+          SDK_SOURCE="$SDK_REPO/iPhoneOS${SDK_VERSION}.sdk"
+          SDK_DEST="$THEOS/sdks/iPhoneOS${SDK_VERSION}.sdk"
+
+          if [ ! -d "$SDK_SOURCE" ]; then
+            echo "iOS SDK $SDK_VERSION not found in repository"
+            find "$SDK_REPO" -maxdepth 1 -name "*.sdk"
+            exit 1
+          fi
+
+          mkdir -p "$THEOS/sdks"
+
+          cp -a "$SDK_SOURCE" "$SDK_DEST"
+
+          test -d "$SDK_DEST/System/Library"
+
+          rm -rf "$SDK_REPO"
+
+      # 6. Проверяем конфигурацию
+      - name: Verify build environment
+        run: |
+          set -eux
+
+          echo "THEOS=$THEOS"
+          echo "SDK_VERSION=$SDK_VERSION"
+          echo "MIN_IOS_VERSION=$MIN_IOS_VERSION"
+          echo "ARCHS=$ARCHS"
+
+          "$THEOS/toolchain/linux/iphone/bin/clang" --version
+
+          test -f Makefile
+
+          test -d "$THEOS/sdks/iPhoneOS${SDK_VERSION}.sdk"
+
+          dpkg-deb --version
+          ldid -h || true
+
+      # 7. Собираем пакет
       - name: Build DEB package
         run: |
-          make package FINALPACKAGE=1 THEOS=/opt/theos
+          set -eux
 
-      - name: Upload DEB
+          make clean || true
+
+          make package \
+            FINALPACKAGE=1 \
+            THEOS="$THEOS" \
+            ARCHS="$ARCHS" \
+            TARGET="iphone:clang:${SDK_VERSION}:${MIN_IOS_VERSION}"
+
+      # 8. Проверяем результат
+      - name: Verify DEB package
+        run: |
+          set -eux
+
+          mkdir -p build-output
+
+          find packages -maxdepth 1 -type f -name "*.deb" \
+            -exec cp {} build-output/ \;
+
+          if ! ls build-output/*.deb >/dev/null 2>&1; then
+            echo "No DEB package was generated"
+            exit 1
+          fi
+
+          for package in build-output/*.deb; do
+            dpkg-deb --info "$package"
+            dpkg-deb --contents "$package"
+          done
+
+      # 9. Загружаем готовый пакет
+      - name: Upload DEB artifact
         uses: actions/upload-artifact@v4
         with:
           name: redalien-ios12
-          path: packages/*.deb
+          path: build-output/*.deb
+          if-no-files-found: error
+          retention-days: 14
