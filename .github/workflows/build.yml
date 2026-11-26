@@ -63,7 +63,7 @@ jobs:
         run: |
           set -eux
 
-          THEOS_REPO="https://github.com/theos/theos.git"
+          THEOS_REPO="https://github.com"
 
           git clone --recursive "$THEOS_REPO" "$THEOS"
 
@@ -77,62 +77,94 @@ jobs:
           git -C "$THEOS" rev-parse --short HEAD
 
       # 4. Download Linux iOS toolchain
-      # ldid is included in this toolchain.
       - name: Install iOS toolchain
         run: |
           set -eux
 
-          TOOLCHAIN_URL="https://github.com"
+          sudo apt-get update
+          sudo apt-get install -y jq curl xz-utils zstd
 
           TMP_DIR="$(mktemp -d)"
+          trap 'rm -rf "$TMP_DIR"' EXIT
+
+          # Get actual release asset URL from GitHub API
+          API_URL="https://api.github.com/repos/sbingner/llvm-project/releases/tags/v10.0.0-2"
+
+          curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL" \
+            -o "$TMP_DIR/release.json"
+
+          echo "Available release assets:"
+          jq -r '.assets[] | "\(.name) \(.browser_download_url)"' \
+            "$TMP_DIR/release.json"
+
+          # Select the Linux toolchain archive automatically
+          ASSET_URL="$(jq -r '
+            .assets[]
+            | select(
+                (.name | ascii_downcase | contains("linux"))
+                and
+                (.name | test("\\.(tar\\.xz|tar\\.lzma|tar\\.zst|tar\\.gz)$"))
+              )
+            | .browser_download_url
+          ' "$TMP_DIR/release.json" | head -n 1)"
+
+          if [ -z "$ASSET_URL" ]; then
+            echo "ERROR: Linux toolchain archive not found"
+            exit 1
+          fi
+
+          echo "Downloading: $ASSET_URL"
 
           curl -fL --retry 3 \
-            "$TOOLCHAIN_URL" \
-            -o "$TMP_DIR/toolchain.tar.lzma"
+            "$ASSET_URL" \
+            -o "$TMP_DIR/toolchain.archive"
 
-          tar --lzma -xf "$TMP_DIR/toolchain.tar.lzma" \
-            -C "$TMP_DIR"
+          # Verify archive before extraction
+          file "$TMP_DIR/toolchain.archive"
 
-          TOOLCHAIN_SOURCE="$TMP_DIR/ios-arm64e-clang-toolchain"
-
-          if [ ! -d "$TOOLCHAIN_SOURCE" ]; then
-            echo "ERROR: Toolchain archive has unexpected structure"
-            find "$TMP_DIR" -maxdepth 3 -print
+          if ! tar -tf "$TMP_DIR/toolchain.archive" \
+              > "$TMP_DIR/archive-list.txt"; then
+            echo "ERROR: Downloaded file is not a valid tar archive"
+            head -c 500 "$TMP_DIR/toolchain.archive"
             exit 1
           fi
 
-          cp -a "$TOOLCHAIN_SOURCE/." \
-            "$THEOS/toolchain/linux/iphone/"
+          mkdir -p "$THEOS/toolchain/linux/iphone"
 
-          if [ ! -x "$THEOS/toolchain/linux/iphone/bin/clang" ]; then
+          tar -xf "$TMP_DIR/toolchain.archive" \
+            -C "$THEOS/toolchain/linux/iphone" \
+            --strip-components=1
+
+          # Locate compiler
+          CLANG_PATH="$(find "$THEOS/toolchain/linux/iphone" \
+            -type f -name clang -perm -111 -print -quit)"
+
+          if [ -z "$CLANG_PATH" ]; then
             echo "ERROR: clang not found"
-            find "$THEOS/toolchain/linux/iphone" -maxdepth 4 -print
+            find "$THEOS/toolchain/linux/iphone" -maxdepth 4
             exit 1
           fi
 
-          # Find bundled ldid
+          # Locate ldid
           LDID_PATH="$(find "$THEOS/toolchain/linux/iphone" \
-            -type f -name ldid -print -quit)"
+            -type f -name ldid -perm -111 -print -quit)"
 
           if [ -z "$LDID_PATH" ]; then
-            echo "ERROR: ldid not found in toolchain"
-            find "$THEOS/toolchain/linux/iphone" -maxdepth 5 -print
+            echo "ERROR: ldid not found"
             exit 1
           fi
-
-          chmod +x "$LDID_PATH"
 
           sudo ln -sf "$LDID_PATH" /usr/local/bin/ldid
 
-          echo "Toolchain installed:"
-          "$THEOS/toolchain/linux/iphone/bin/clang" --version
+          echo "Compiler:"
+          "$CLANG_PATH" --version
 
-          echo "ldid location:"
-          command -v ldid
+          echo "ldid:"
+          ldid -h || true
 
-          file "$LDID_PATH"
-
-          rm -rf "$TMP_DIR"
+          echo "Toolchain installed successfully"
 
       # 5. Download iOS 12.4 SDK
       - name: Install iOS SDK
